@@ -1,11 +1,6 @@
 pipeline {
     agent any
     
-    environment {
-        DOCKER_IMAGE = 'devops_tool_app'
-        DOCKER_TAG = 'latest'
-    }
-    
     stages {
         stage('Checkout') {
             steps {
@@ -13,52 +8,40 @@ pipeline {
             }
         }
         
-        stage('Build Docker Image') {
+        stage('Setup Python') {
             steps {
-                script {
-                    docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
-                }
+                sh '''
+                python -m venv venv
+                . venv/bin/activate
+                pip install -r requirements.txt
+                '''
             }
         }
         
         stage('Run Tests') {
             steps {
-                script {
-                    // Exemple: exécution des tests dans le conteneur
-                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
-                        sh 'python -m pytest tests/'
-                    }
-                }
+                sh '''
+                . venv/bin/activate
+                python -m pytest tests/
+                '''
             }
         }
         
-        stage('Deploy to Dev') {
+        stage('Run Application') {
             steps {
-                script {
-                    // Arrête et supprime l'ancien conteneur si existant
-                    sh 'docker stop devops_tool_app-dev || true'
-                    sh 'docker rm devops_tool_app-dev || true'
-                    
-                    // Lance le nouveau conteneur
-                    sh "docker run -d -p 5000:5000 --name devops_tool_app-dev ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                }
+                sh '''
+                . venv/bin/activate
+                nohup python app.py > app.log 2>&1 &
+                echo $! > app.pid
+                '''
             }
         }
-        
-
     }
     
     post {
         always {
-            echo 'Nettoyage...'
-            // Nettoyage des conteneurs et images intermédiaires
-            sh 'docker system prune -f'
-        }
-        success {
-            echo 'Pipeline réussi!'
-        }
-        failure {
-            echo 'Pipeline échoué!'
+            sh 'pkill -F app.pid || true'
+            sh 'rm -f app.pid app.log'
         }
     }
 }
